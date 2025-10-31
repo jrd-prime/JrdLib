@@ -2,7 +2,7 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace JRD.EditorTools
+namespace _StoryGame.Editor
 {
     /// <summary>
     /// Combines multiple selected GameObjects (with MeshRenderers and MeshFilters)
@@ -16,11 +16,12 @@ namespace JRD.EditorTools
         private const float AreaError = 0.05f; // UV area distortion tolerance
 
         private const bool GenerateSecondaryUVSetForLightmapping = true;
+        private const bool GenerateColliders = true;
 
         [MenuItem("Tools/Combine Selected Meshes")]
         private static void CombineSelected()
         {
-            // Get all currently selected GameObjects in the Unity Editor
+            // 🔹 Get all currently selected GameObjects in the Unity Editor
             var selectedObjects = Selection.gameObjects;
             if (selectedObjects.Length == 0)
             {
@@ -126,14 +127,13 @@ namespace JRD.EditorTools
             // useMatrices = false → we already baked transforms above
             newMesh.CombineMeshes(finalCombine.ToArray(), false, false);
 
+            // ------------------------------------------------------------------------
+            // GENERATE SECONDARY UV SET (UV2) FOR LIGHTMAPPING
+            // ------------------------------------------------------------------------
+            // Unity requires a non-overlapping UV2 for baked lighting.
+            // We use custom unwrap parameters to reduce lightmap artifacts
             if (GenerateSecondaryUVSetForLightmapping)
             {
-                // ------------------------------------------------------------------------
-                // GENERATE SECONDARY UV SET (UV2) FOR LIGHTMAPPING
-                // ------------------------------------------------------------------------
-                // Unity requires a non-overlapping UV2 for baked lighting.
-                // We use custom unwrap parameters to reduce lightmap artifacts
-
                 UnwrapParam.SetDefaults(out UnwrapParam settings);
                 settings.hardAngle = HardAngle;
                 settings.packMargin = PackMargin;
@@ -158,6 +158,30 @@ namespace JRD.EditorTools
             GameObjectUtility.SetStaticEditorFlags(combined,
                 StaticEditorFlags.BatchingStatic |
                 StaticEditorFlags.ContributeGI);
+
+            // ------------------------------------------------------------------------
+            // COPY COLLIDERS FROM ORIGINAL OBJECTS
+            // ------------------------------------------------------------------------
+            if (GenerateColliders)
+            {
+                var collidersRoot = new GameObject("Colliders");
+                collidersRoot.transform.SetParent(combined.transform, false);
+
+                foreach (var src in selectedObjects)
+                {
+                    var colliderGo = new GameObject(src.name + "_Collider");
+                    colliderGo.transform.SetParent(collidersRoot.transform, false);
+                    colliderGo.transform.position = src.transform.position;
+                    colliderGo.transform.rotation = src.transform.rotation;
+                    colliderGo.transform.localScale = src.transform.lossyScale;
+
+                    foreach (var collider in src.GetComponents<Collider>())
+                    {
+                        var newCollider = colliderGo.AddComponent(collider.GetType()) as Collider;
+                        EditorUtility.CopySerialized(collider, newCollider);
+                    }
+                }
+            }
 
             Debug.Log(
                 $"Combined {selectedObjects.Length} objects into 1 mesh with {allMaterials.Count} materials. Created: {combined.name}");
